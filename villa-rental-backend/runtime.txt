@@ -1,0 +1,8 @@
+{
+  "name": "villa-rental-api",
+  "version": "1.0.0",
+  "description": "Orlando Villa Rental API",
+  "engines": {
+    "node": "18.x"
+  }
+}
