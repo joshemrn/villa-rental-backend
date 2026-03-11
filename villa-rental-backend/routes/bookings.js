@@ -5,6 +5,11 @@ const { auth } = require('../middleware/auth');
 
 const router = express.Router();
 
+const parsePositiveInt = (value, fallback) => {
+  const parsed = parseInt(value, 10);
+  return Number.isNaN(parsed) || parsed <= 0 ? fallback : parsed;
+};
+
 // Create booking
 router.post('/', auth, async (req, res) => {
   try {
@@ -48,22 +53,37 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
-// Get booking by ID
-router.get('/:id', async (req, res) => {
-  try {
-    const booking = await Booking.findById(req.params.id).populate('propertyId guestId ownerId');
-    if (!booking) return res.status(404).json({ message: 'Booking not found' });
-    res.json(booking);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
 // Get my bookings (guest)
 router.get('/guest/my-bookings', auth, async (req, res) => {
   try {
-    const bookings = await Booking.find({ guestId: req.user.id }).populate('propertyId ownerId');
-    res.json(bookings);
+    const { status, page = 1, limit = 20 } = req.query;
+    const filter = { guestId: req.user.id };
+
+    if (status) {
+      filter.status = status;
+    }
+
+    const normalizedPage = parsePositiveInt(page, 1);
+    const normalizedLimit = Math.min(parsePositiveInt(limit, 20), 100);
+
+    const [bookings, total] = await Promise.all([
+      Booking.find(filter)
+        .sort({ createdAt: -1 })
+        .skip((normalizedPage - 1) * normalizedLimit)
+        .limit(normalizedLimit)
+        .populate('propertyId ownerId'),
+      Booking.countDocuments(filter)
+    ]);
+
+    res.json({
+      data: bookings,
+      pagination: {
+        total,
+        page: normalizedPage,
+        limit: normalizedLimit,
+        totalPages: Math.ceil(total / normalizedLimit)
+      }
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -72,8 +92,54 @@ router.get('/guest/my-bookings', auth, async (req, res) => {
 // Get my bookings (owner)
 router.get('/owner/my-bookings', auth, async (req, res) => {
   try {
-    const bookings = await Booking.find({ ownerId: req.user.id }).populate('propertyId guestId');
-    res.json(bookings);
+    const { status, page = 1, limit = 20 } = req.query;
+    const filter = { ownerId: req.user.id };
+
+    if (status) {
+      filter.status = status;
+    }
+
+    const normalizedPage = parsePositiveInt(page, 1);
+    const normalizedLimit = Math.min(parsePositiveInt(limit, 20), 100);
+
+    const [bookings, total] = await Promise.all([
+      Booking.find(filter)
+        .sort({ createdAt: -1 })
+        .skip((normalizedPage - 1) * normalizedLimit)
+        .limit(normalizedLimit)
+        .populate('propertyId guestId'),
+      Booking.countDocuments(filter)
+    ]);
+
+    res.json({
+      data: bookings,
+      pagination: {
+        total,
+        page: normalizedPage,
+        limit: normalizedLimit,
+        totalPages: Math.ceil(total / normalizedLimit)
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Get booking by ID
+router.get('/:id', auth, async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id).populate('propertyId guestId ownerId');
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
+    if (
+      booking.ownerId.toString() !== req.user.id &&
+      booking.guestId.toString() !== req.user.id &&
+      req.user.role !== 'admin'
+    ) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    res.json(booking);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

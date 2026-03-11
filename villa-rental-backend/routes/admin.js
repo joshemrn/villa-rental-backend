@@ -12,18 +12,37 @@ router.use(auth, adminOnly);
 // Get dashboard stats
 router.get('/dashboard/stats', async (req, res) => {
   try {
-    const totalUsers = await User.countDocuments();
-    const totalProperties = await Property.countDocuments();
-    const totalBookings = await Booking.countDocuments();
-    const totalRevenue = await Booking.aggregate([
-      { $match: { paymentStatus: 'completed' } },
-      { $group: { _id: null, total: { $sum: '$totalPrice' } } }
+    const [
+      totalUsers,
+      totalProperties,
+      totalBookings,
+      activeProperties,
+      pendingPropertyVerifications,
+      confirmedBookings,
+      cancelledBookings,
+      totalRevenue
+    ] = await Promise.all([
+      User.countDocuments(),
+      Property.countDocuments(),
+      Booking.countDocuments(),
+      Property.countDocuments({ active: true }),
+      Property.countDocuments({ verified: false, active: true }),
+      Booking.countDocuments({ status: 'confirmed' }),
+      Booking.countDocuments({ status: 'cancelled' }),
+      Booking.aggregate([
+        { $match: { paymentStatus: 'completed' } },
+        { $group: { _id: null, total: { $sum: '$totalPrice' } } }
+      ])
     ]);
 
     res.json({
       totalUsers,
       totalProperties,
       totalBookings,
+      activeProperties,
+      pendingPropertyVerifications,
+      confirmedBookings,
+      cancelledBookings,
       totalRevenue: totalRevenue[0]?.total || 0
     });
   } catch (err) {
@@ -48,7 +67,7 @@ router.put('/properties/:id/verify', async (req, res) => {
 // Get all properties
 router.get('/properties', async (req, res) => {
   try {
-    const properties = await Property.find().populate('owner');
+    const properties = await Property.find().sort({ createdAt: -1 }).populate('owner');
     res.json(properties);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -58,7 +77,7 @@ router.get('/properties', async (req, res) => {
 // Get all bookings
 router.get('/bookings', async (req, res) => {
   try {
-    const bookings = await Booking.find().populate('propertyId guestId ownerId');
+    const bookings = await Booking.find().sort({ createdAt: -1 }).populate('propertyId guestId ownerId');
     res.json(bookings);
   } catch (err) {
     res.status(500).json({ message: err.message });
